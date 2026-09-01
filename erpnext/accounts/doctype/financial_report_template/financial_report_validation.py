@@ -1,6 +1,7 @@
 # Copyright (c) 2025, Frappe Technologies Pvt. Ltd. and contributors
 # For license information, please see license.txt
 
+import inspect
 import json
 import re
 from abc import ABC, abstractmethod
@@ -545,6 +546,20 @@ class FormulaValidator(Validator):
 						row_idx=row.idx,
 					)
 				)
+
+			custom_api_method = frappe.get_attr(api_path)
+			custom_api_method_args = set(inspect.getfullargspec(custom_api_method).args)
+
+			if not {"filters", "periods", "row"}.issubset(custom_api_method_args):
+				result.add_error(
+					ValidationIssue(
+						message=_(
+							"{0}: API Method should match with the method-signature. See Custom API Setup."
+						).format(get_formula_field_label(row.data_source)),
+						row_idx=row.idx,
+					)
+				)
+
 		except Exception as e:
 			result.add_error(
 				ValidationIssue(
