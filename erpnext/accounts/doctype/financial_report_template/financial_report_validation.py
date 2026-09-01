@@ -521,6 +521,15 @@ class FormulaValidator(Validator):
 		result = ValidationResult()
 		api_path = row.calculation_formula
 
+		if "System Manager" not in frappe.get_roles():
+			result.add_error(
+				ValidationIssue(
+					message=_("Custom API can be set only by System Manager"),
+					row_idx=row.idx,
+				)
+			)
+			return result
+
 		if "." not in api_path:
 			result.add_error(
 				ValidationIssue(
