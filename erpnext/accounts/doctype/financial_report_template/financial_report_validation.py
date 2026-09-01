@@ -541,6 +541,15 @@ class FormulaValidator(Validator):
 			)
 			return result
 
+		if not self.is_custom_api_in_hook(api_path):
+			result.add_error(
+				ValidationIssue(
+					message=_("Custom API Methods isn't mentioned on the `frt_custom_api_methods` hooks"),
+					row_idx=row.idx,
+				)
+			)
+			return result
+
 		# Method exists?
 		try:
 			module_path, method_name = api_path.rsplit(".", 1)
@@ -556,10 +565,7 @@ class FormulaValidator(Validator):
 					)
 				)
 
-			custom_api_method = frappe.get_attr(api_path)
-			custom_api_method_args = set(inspect.getfullargspec(custom_api_method).args)
-
-			if not {"filters", "periods", "row"}.issubset(custom_api_method_args):
+			if not self.is_custom_api_method_signature_correct(api_path):
 				result.add_error(
 					ValidationIssue(
 						message=_(
@@ -580,6 +586,18 @@ class FormulaValidator(Validator):
 			)
 
 		return result
+
+	@staticmethod
+	def is_custom_api_in_hook(api_path: str):
+		frt_custom_api_methods = frappe.get_hooks("frt_custom_api_methods")
+		return api_path in frt_custom_api_methods
+
+	@staticmethod
+	def is_custom_api_method_signature_correct(api_path: str):
+		"""Custom API Methods must have only `filters`, `periods` and `row` parameters."""
+		custom_api_method = frappe.get_attr(api_path)
+		custom_api_method_args = set(inspect.getfullargspec(custom_api_method).args)
+		return {"filters", "periods", "row"} == custom_api_method_args
 
 
 def extract_reference_codes_from_formula(formula: str, available_codes: list[str]) -> list[str]:

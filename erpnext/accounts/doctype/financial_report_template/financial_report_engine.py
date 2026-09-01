@@ -32,6 +32,7 @@ from erpnext.accounts.doctype.financial_report_template.financial_report_validat
 	AccountFilterValidator,
 	CalculationFormulaValidator,
 	DependencyValidator,
+	FormulaValidator,
 )
 from erpnext.accounts.report.financial_statements import (
 	get_columns,
@@ -1185,6 +1186,12 @@ class RowProcessor:
 		# TODO
 
 		try:
+			if not FormulaValidator.is_custom_api_in_hook(api_path):
+				raise NotImplementedError("Method not explicitly mentioned in hooks")
+
+			if not FormulaValidator.is_custom_api_method_signature_correct(api_path):
+				raise NotImplementedError("Method signatures are invalid. See Custom API Setup.")
+
 			values = frappe.call(api_path, filters=self.context.filters, periods=self.period_list, row=row)
 
 			if row.reverse_sign:
