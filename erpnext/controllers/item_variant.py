@@ -34,6 +34,11 @@ def get_variant(template, args=None, variant=None, manufacturer=None, manufactur
 	:param item: Template Item
 	:param args: A dictionary with "Attribute" as key and "Attribute Value" as value
 	"""
+	# The client callers are the Item form (item.js:1144, 1483), so the template Item is the boundary
+	# and `read` is loser-free: the roles that cannot read Item cannot open that form either. The two
+	# server-side callers (item.py:1083 on Item save, item_variant.py:393) already hold the template.
+	frappe.has_permission("Item", doc=template, throw=True)
+
 	item_template = frappe.get_doc("Item", template)
 
 	if item_template.variant_based_on == "Manufacturer" and manufacturer:
@@ -309,6 +314,12 @@ def find_variant(template, args, variant_item_code=None):
 
 @frappe.whitelist()
 def create_variant(item, args, use_template_image=False):
+	# Same right its sibling enqueue_multiple_variant_creation already requires — this builds an
+	# Item the caller is about to insert (item.js:1511) — plus record-level read on the template
+	# it copies from.
+	frappe.has_permission("Item", ptype="create", throw=True)
+	frappe.has_permission("Item", doc=item, throw=True)
+
 	use_template_image = frappe.parse_json(use_template_image)
 	if isinstance(args, str):
 		args = json.loads(args)
@@ -334,7 +345,7 @@ def create_variant(item, args, use_template_image=False):
 	return variant
 
 
-@frappe.whitelist()
+@frappe.whitelist(methods=["POST"])
 def enqueue_multiple_variant_creation(item, args, use_template_image=False):
 	frappe.has_permission("Item", ptype="create", throw=True)
 	use_template_image = frappe.parse_json(use_template_image)
@@ -527,6 +538,10 @@ def make_variant_item_code(template_item_code, template_item_name, variant):
 
 @frappe.whitelist()
 def create_variant_doc_for_quick_entry(template, args):
+	# Delegates to get_variant and create_variant below, which carry their own checks; this one
+	# fails fast rather than relying on that delegation.
+	frappe.has_permission("Item", doc=template, throw=True)
+
 	variant_based_on = frappe.db.get_value("Item", template, "variant_based_on")
 	args = json.loads(args)
 	if variant_based_on == "Manufacturer":
