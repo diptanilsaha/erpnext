@@ -203,7 +203,14 @@ def add_node():
 def convert_to_group_or_ledger(docname=None):
 	if not docname:
 		docname = frappe.form_dict.docname
-	return frappe.get_doc("Warehouse", docname).convert_to_group_or_ledger()
+
+	# Converting a warehouse between group and ledger restructures the tree, so it needs write on
+	# the warehouse being converted. `Warehouse` write is held by Item Manager alone, which is also
+	# who can open the form this button sits on (warehouse.js:104).
+	warehouse = frappe.get_doc("Warehouse", docname)
+	warehouse.check_permission("write")
+
+	return warehouse.convert_to_group_or_ledger()
 
 
 def get_child_warehouses(warehouse):
