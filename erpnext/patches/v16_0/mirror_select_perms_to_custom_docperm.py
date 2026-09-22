@@ -51,11 +51,8 @@ GRANTS = {
 	],
 	"BOM": [
 		"Maintenance User",
-		"Purchase Manager",
-		"Purchase User",
 		"Sales Manager",
 		"Sales User",
-		"Stock Manager",
 	],
 	"Bank": [
 		"Accounts Manager",
@@ -498,6 +495,16 @@ PTYPES = (
 # patch must never do -- so a customised site keeps its `select` row on BOM and an administrator
 # raises it by hand if they want to.
 READ_GRANTS = {
+	# Purchase Manager, Purchase User and Stock Manager held `select` on BOM until this release
+	# raised them to `read`, and Stock User is a new row. They are `read` here rather than `select`
+	# because get_bom_items() checks `read`, and the select-implied-by-read fallback only runs the
+	# other way: a `select` row does not satisfy a `read` check.
+	"BOM": {
+		"Purchase Manager": ("read",),
+		"Purchase User": ("read",),
+		"Stock Manager": ("read",),
+		"Stock User": ("read",),
+	},
 	"Company": {"Sales Manager": ("read",)},
 	"Material Request": {"Manufacturing Manager": ("read", "report")},
 }
