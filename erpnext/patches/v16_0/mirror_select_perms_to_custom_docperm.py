@@ -571,6 +571,87 @@ def removed_roles(doctype):
 	return roles
 
 
+ALL_PTYPES = ("select", *PTYPES)
+
+
+def effective(ptypes):
+	"""What a ptype set actually grants, with frappe's read-implies-select fallback applied.
+
+	frappe.permissions.has_permission falls back one way only -- a `select` check is satisfied by
+	a `read` row, never the reverse -- so `read` is strictly wider than `select` and the comparison
+	below has to say so.
+	"""
+	granted = set(ptypes)
+	if "read" in granted:
+		granted.add("select")
+	return granted
+
+
+def raise_existing_row(doctype, role, ptypes, name):
+	"""Raise a row this release widened, and only that.
+
+	An existing row is not always a decision the site made. copy_perms() snapshots whatever
+	shipped at customisation time, so on a DocType customised before this release the row is a
+	frozen copy of the old shipped grant -- `select` where this release now ships `read`. Left
+	alone it silently costs the role any endpoint that checks `read`.
+
+	The test is a strict subset of what this release grants, which keeps two things true: a row an
+	administrator widened grants something outside that set, so it is never a subset and is never
+	touched; and a row already at or above the shipped grant is left exactly as it is.
+	"""
+	row = frappe.get_doc("Custom DocPerm", name)
+
+	if cint(row.if_owner):
+		# an if_owner rule is a narrowing the site chose, not a snapshot; not ours to widen
+		return False
+
+	have = {ptype for ptype in ALL_PTYPES if cint(row.get(ptype))}
+	if not have:
+		# every ptype cleared is a deliberate state, not something copy_perms would produce
+		return False
+
+	if not effective(have) < effective(ptypes):
+		return False
+
+	before = {field: row.get(field) for field in ("role", "permlevel", "if_owner", *ALL_PTYPES)}
+
+	try:
+		frappe.db.savepoint(SAVEPOINT)
+		for ptype in ALL_PTYPES:
+			row.set(ptype, 1 if ptype in ptypes else 0)
+		row.save(ignore_permissions=True)
+		log_changed(doctype, row, before)
+	except Exception:
+		frappe.db.rollback(save_point=SAVEPOINT)
+		frappe.log_error(
+			title="Could not raise select permission",
+			message=f"{doctype} / {role}\n\n{frappe.get_traceback()}",
+		)
+		return False
+
+	print(f"{doctype} / {role}: raised {sorted(have)} to {sorted(ptypes)}")
+	return True
+
+
+def log_changed(doctype, row, before):
+	"""Record a raised row in Permission Log, the shape insert_perm_log() writes for an edit."""
+	after = {field: row.get(field) for field in ("role", "permlevel", "if_owner", *ALL_PTYPES)}
+
+	frappe.get_doc(
+		{
+			"doctype": "Permission Log",
+			"owner": frappe.session.user,
+			"changed_by": frappe.session.user,
+			"reference_type": "Custom DocPerm",
+			"reference": row.name,
+			"for_doctype": "DocType",
+			"for_document": doctype,
+			"status": "Changed",
+			"changes": frappe.as_json({"from": before, "to": after}, indent=0),
+		}
+	).db_insert()
+
+
 def log_added(doctype, row):
 	"""Record an inserted row in Permission Log by hand.
 
@@ -624,8 +705,14 @@ def execute():
 			if not frappe.db.exists("Role", role):
 				continue
 
-			# leave any existing rule for this role and level as the site configured it
-			if frappe.db.exists("Custom DocPerm", {"parent": doctype, "role": role, "permlevel": 0}):
+			# an existing rule stays as the site configured it, unless it is a copy_perms snapshot
+			# of a grant this release has since widened -- see raise_existing_row()
+			existing = frappe.db.get_value(
+				"Custom DocPerm", {"parent": doctype, "role": role, "permlevel": 0}, "name"
+			)
+			if existing:
+				if raise_existing_row(doctype, role, ptypes, existing):
+					added = True
 				continue
 
 			# the site held this rule and deleted it again: that is a decision, not a gap
