@@ -784,6 +784,14 @@ def get_warehouse_details(args):
 def get_consumed_asset_details(ctx):
 	check_capitalization_access(ctx.get("company"))
 
+	# and the Asset the caller named, because its identity and depreciation values are returned
+	# below and this reads through the unguarded _get_asset_value_after_depreciation. Access to the
+	# Asset Capitalization form is not authority over every Asset. select-or-read for the same
+	# reason as the wrapper in asset.py: the roles that use this form hold `select` on Asset.
+	if ctx.get("asset"):
+		ptype = "select" if frappe.only_has_select_perm("Asset") else "read"
+		frappe.has_permission("Asset", ptype, doc=ctx.get("asset"), throw=True)
+
 	out = frappe._dict()
 
 	asset_details = frappe._dict()
