@@ -489,11 +489,12 @@ PTYPES = (
 # reason as the `select` grants above: a DocType carrying any Custom DocPerm row stops reading the
 # shipped rows, so these never reach a customised site either.
 #
-# Deliberately NOT here: the BOM rows that changed from `select` to `read` this release. Those
-# DocPerm rows already exist, and the second test below leaves an existing row exactly as the site
-# configured it. Upgrading one would overwrite a site's own decision, which is the one thing this
-# patch must never do -- so a customised site keeps its `select` row on BOM and an administrator
-# raises it by hand if they want to.
+# The BOM entries below take effect only where the pair has NO Custom DocPerm row -- on a site
+# customised before this release that is `Stock User` alone. The other three were snapshotted
+# by copy_perms as `select` at customisation time, and the second test below skips an existing
+# row whatever its ptypes, so they keep `select`. get_bom_items() checks `read`, which a
+# `select` row does not satisfy, so those three lose that endpoint on such a site until an
+# administrator raises the row by hand.
 READ_GRANTS = {
 	# Purchase Manager, Purchase User and Stock Manager held `select` on BOM until this release
 	# raised them to `read`, and Stock User is a new row. They are `read` here rather than `select`
