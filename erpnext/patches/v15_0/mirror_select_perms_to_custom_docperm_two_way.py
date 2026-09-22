@@ -53,6 +53,7 @@ GRANTS = {
 		"Sales Manager",
 		"Sales User",
 		"Stock Manager",
+		"Stock User",
 	],
 	"Bank": [
 		"Accounts Manager",
@@ -92,6 +93,7 @@ GRANTS = {
 	],
 	"Company": [
 		"Desk User",
+		"Sales Manager",
 	],
 	"Cost Center": [
 		"Delivery Manager",
@@ -220,6 +222,7 @@ GRANTS = {
 		"Delivery Manager",
 		"Delivery User",
 		"Maintenance User",
+		"Manufacturing Manager",
 	],
 	"Mode of Payment": [
 		"Maintenance Manager",
@@ -485,9 +488,23 @@ GRANTS = {
 # Log` is ever backported the v16 patch is still free to run here. A name burned in `Patch Log`
 # never gets a second chance.
 
+# Most pairs below are mirrored as `select` and nothing else, matching the shipped row they
+# stand in for. These are the exceptions: their shipped rows grant more than `select`, so a
+# select-only mirror would not match. It would also BREAK the form -- `select` does not imply
+# `read` on this branch (there is no fallback in either direction here), and
+# bom.get_bom_items() checks `read`. Each entry is the exact ptype set of the shipped row.
+PAIR_PTYPES = {
+	("BOM", "Purchase Manager"): ("read", "select"),
+	("BOM", "Purchase User"): ("read", "select"),
+	("BOM", "Stock Manager"): ("read", "select"),
+	("BOM", "Stock User"): ("read", "select"),
+	("Company", "Sales Manager"): ("read",),
+	("Material Request", "Manufacturing Manager"): ("read", "report"),
+}
+
 # Custom DocPerm defaults `read` and `export` to 1, and frappe.permissions.add_permission
-# leaves those defaults in place, so every ptype is written explicitly here: these rows
-# grant `select` and nothing else, exactly like the shipped rows they stand in for.
+# leaves those defaults in place, so every ptype is written explicitly here: a row gets exactly
+# the ptypes its shipped counterpart has and nothing else.
 PTYPES = (
 	"read",
 	"write",
@@ -531,6 +548,7 @@ def execute():
 				frappe.db.savepoint(SAVEPOINT)
 
 				row = frappe.new_doc("Custom DocPerm")
+				granted = PAIR_PTYPES.get((doctype, role), ("select",))
 				row.update(
 					{
 						"parent": doctype,
@@ -539,11 +557,12 @@ def execute():
 						"role": role,
 						"permlevel": 0,
 						"if_owner": 0,
-						"select": 1,
 					}
 				)
-				for ptype in PTYPES:
-					row.set(ptype, 0)
+				# PTYPES is the clearing list and deliberately excludes `select`; write that too,
+				# otherwise a pair whose granted set includes it silently gets read-only
+				for ptype in (*PTYPES, "select"):
+					row.set(ptype, 1 if ptype in granted else 0)
 
 				row.insert(ignore_permissions=True)
 				added = True
