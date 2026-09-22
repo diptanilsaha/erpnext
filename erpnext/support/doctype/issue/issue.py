@@ -188,14 +188,24 @@ class Issue(Document):
 		# reference this Issue and the ones only joined to it through a Timeline Link.
 		referenced, linked = self.get_timeline_communications(after=comm_to_split_from.communication_date)
 
-		for name in sorted(referenced | linked):
+		# A Timeline Link is this Issue's own handle on the Communication, so it moves with the
+		# split. Retarget just that row rather than saving the Communication: a Communication
+		# joined here only by a Timeline Link may reference some other document entirely, and
+		# whoever may split this Issue is not thereby entitled to write that Communication.
+		# Requiring write on it instead would stop the split for everyone, since Communication
+		# grants write to no role at permlevel 0.
+		for link in frappe.get_all(
+			"Communication Link",
+			filters={"link_doctype": "Issue", "link_name": self.name, "parent": ("in", sorted(linked))},
+			pluck="name",
+		):
+			frappe.db.set_value("Communication Link", link, "link_name", replicated_issue.name)
+
+		# Communications that reference this Issue belong to it outright, so they move whole.
+		for name in sorted(referenced):
 			doc = frappe.get_doc("Communication", name)
+			doc.reference_name = replicated_issue.name
 
-			if name in referenced:
-				doc.reference_name = replicated_issue.name
-
-			# A Timeline Link is this Issue's own handle on the Communication, so it moves with
-			# the split. Its reference belongs to some other document and is left alone.
 			for link in doc.timeline_links:
 				if link.link_doctype == "Issue" and link.link_name == self.name:
 					link.link_name = replicated_issue.name
