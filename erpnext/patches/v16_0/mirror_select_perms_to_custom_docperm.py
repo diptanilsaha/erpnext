@@ -488,6 +488,35 @@ PTYPES = (
 	"email",
 )
 
+# `read` grants added to the shipped DocType JSON in this release, mirrored for exactly the same
+# reason as the `select` grants above: a DocType carrying any Custom DocPerm row stops reading the
+# shipped rows, so these never reach a customised site either.
+#
+# Deliberately NOT here: the BOM rows that changed from `select` to `read` this release. Those
+# DocPerm rows already exist, and the second test below leaves an existing row exactly as the site
+# configured it. Upgrading one would overwrite a site's own decision, which is the one thing this
+# patch must never do -- so a customised site keeps its `select` row on BOM and an administrator
+# raises it by hand if they want to.
+READ_GRANTS = {
+	"Company": {"Sales Manager": ("read",)},
+	"Material Request": {"Manufacturing Manager": ("read", "report")},
+}
+
+
+def grant_map():
+	"""(DocType, role) -> the ptypes this release granted, from both tables above."""
+	combined = {}
+	for doctype, roles in GRANTS.items():
+		for role in roles:
+			combined.setdefault(doctype, {}).setdefault(role, set()).add("select")
+
+	for doctype, roles in READ_GRANTS.items():
+		for role, ptypes in roles.items():
+			combined.setdefault(doctype, {}).setdefault(role, set()).update(ptypes)
+
+	return combined
+
+
 SAVEPOINT = "mirror_select_perms_to_custom_docperm"
 
 
@@ -572,7 +601,7 @@ def execute():
 		)
 		return
 
-	for doctype, roles in GRANTS.items():
+	for doctype, roles in grant_map().items():
 		if not frappe.db.exists("DocType", doctype):
 			continue
 
@@ -583,7 +612,7 @@ def execute():
 		removed = removed_roles(doctype)
 		added = False
 
-		for role in roles:
+		for role, ptypes in roles.items():
 			if not frappe.db.exists("Role", role):
 				continue
 
@@ -608,11 +637,11 @@ def execute():
 						"role": role,
 						"permlevel": 0,
 						"if_owner": 0,
-						"select": 1,
+						"select": 1 if "select" in ptypes else 0,
 					}
 				)
 				for ptype in PTYPES:
-					row.set(ptype, 0)
+					row.set(ptype, 1 if ptype in ptypes else 0)
 
 				row.insert(ignore_permissions=True)
 				log_added(doctype, row)
