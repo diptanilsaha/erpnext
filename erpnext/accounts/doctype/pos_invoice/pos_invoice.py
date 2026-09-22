@@ -902,7 +902,10 @@ def get_stock_availability(item_code, warehouse):
 	# The POS Profile is what entitles a caller to POS stock figures, and it is the only boundary
 	# that fits: `Item` read and `Bin` read both exclude Accounts Manager, `Item` select is granted
 	# to every desk user by `Desk User`, and `POS Invoice` read is granted to `All`.
-	frappe.has_permission("POS Profile", throw=True)
+	# select-or-read for the same reason as point_of_sale.check_pos_profile_access: a bare check
+	# defaults to `read`, which Sales Manager does not hold on POS Profile.
+	ptype = "select" if frappe.only_has_select_perm("POS Profile") else "read"
+	frappe.has_permission("POS Profile", ptype, throw=True)
 
 	# the caller picks the warehouse when allow_warehouse_change is set; costs nobody who has no
 	# Warehouse User Permission

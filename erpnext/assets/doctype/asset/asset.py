@@ -1317,6 +1317,7 @@ def is_cwip_accounting_enabled(asset_category):
 
 @frappe.whitelist()
 def get_asset_value_after_depreciation(asset_name, finance_book=None):
+	"""Whitelisted entry point: authorise the caller, then return the value."""
 	# one of the three calling forms is the boundary; Asset itself excludes the roles holding Asset Value Adjustment write
 	if not any(
 		frappe.has_permission(dt, "write")
@@ -1324,6 +1325,19 @@ def get_asset_value_after_depreciation(asset_name, finance_book=None):
 	):
 		frappe.throw(_("Not permitted"), frappe.PermissionError)
 
+	# and the Asset named by the caller, because write on an adjustment form is not authority over
+	# every Asset and a bare get_doc() checks nothing. doc= is what brings User Permissions in.
+	# select-or-read: the roles that adjust an asset's value hold `select` on Asset, not `read`, and
+	# a `select` row does not satisfy a `read` check -- the fallback only runs the other way.
+	# Only on this path: the in-process callers legitimately read an asset the submitting user may
+	# not hold a row on at all, which is why they use _get_asset_value_after_depreciation() below.
+	ptype = "select" if frappe.only_has_select_perm("Asset") else "read"
+	frappe.has_permission("Asset", ptype, doc=asset_name, throw=True)
+
+	return _get_asset_value_after_depreciation(asset_name, finance_book)
+
+
+def _get_asset_value_after_depreciation(asset_name, finance_book=None):
 	asset = frappe.get_doc("Asset", asset_name)
 
 	if not asset.calculate_depreciation:
@@ -1355,7 +1369,10 @@ def get_values_from_purchase_doc(purchase_doc_name: str, item_code: str, doctype
 	# purchase document cannot be it.
 	frappe.has_permission("Asset", "write", throw=True)
 
-	purchase_doc = frappe.get_doc(doctype, purchase_doc_name)
+	# and the purchase document itself, because its company, posting date, valuation-derived amount
+	# and cost center are returned below. Asset write is not authority to read a Purchase Receipt or
+	# Purchase Invoice -- Quality Manager holds the former and neither of the latter.
+	purchase_doc = frappe.get_doc(doctype, purchase_doc_name, check_permission="read")
 
 	matching_items = [item for item in purchase_doc.items if item.item_code == item_code]
 
