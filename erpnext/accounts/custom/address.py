@@ -58,7 +58,9 @@ def get_shipping_address(company, address=None):
 	# `company` is caller supplied and this returns that company's own registered address with every
 	# field. `select` rather than `read` on Company: Delivery, Maintenance, Purchase Manager and
 	# Stock Manager all fill in transactions that ask for this while holding no Company `read` row.
-	frappe.has_permission("Company", ptype="select", throw=True)
+	# doc= so the named company is checked, not merely the doctype: a doctype-level check applies no
+	# User Permissions, and a caller restricted to one company could name another.
+	frappe.has_permission("Company", ptype="select", doc=company, throw=True)
 	filters = [
 		["Dynamic Link", "link_doctype", "=", "Company"],
 		["Dynamic Link", "link_name", "=", company],

@@ -12,7 +12,8 @@ import frappe.defaults
 from frappe import _, msgprint
 from frappe.model.document import Document
 from frappe.model.mapper import get_mapped_doc
-from frappe.query_builder.functions import Sum
+from frappe.query_builder import Order
+from frappe.query_builder.functions import Min, Sum
 from frappe.utils import (
 	cint,
 	comma_and,
@@ -903,15 +904,36 @@ def get_material_requests_based_on_supplier(doctype, txt, searchfield, start, pa
 		date = filters.get("transaction_date")[1]
 		mr_filters.append(["transaction_date", "between", [date[0], date[1]]])
 
-	return frappe.get_list(
+	# get_list applies the permission conditions but cannot order by a column on the child table,
+	# and this picker has always been ordered by Material Request Item.item_code. So resolve the
+	# permitted names first, then order the rows the way the picker has always ordered them.
+	permitted = frappe.get_list(
 		"Material Request",
 		filters=mr_filters,
-		fields=["name", "transaction_date", "company"],
-		group_by="name",
-		order_by="name",
-		limit_start=cint(start),
-		limit_page_length=cint(page_len),
+		pluck="name",
+		order_by="",
+		limit_page_length=0,
 	)
+
+	if not permitted:
+		return []
+
+	mr = frappe.qb.DocType("Material Request")
+	mr_item = frappe.qb.DocType("Material Request Item")
+
+	# group_by, not distinct: it dedupes the child join just the same, and frappe drops ORDER BY
+	# from a distinct query on Postgres. item_code is aggregated for the same reason -- it is not a
+	# grouped column, and Min() preserves the ascending order the raw query produced.
+	return (
+		frappe.qb.from_(mr)
+		.from_(mr_item)
+		.select(mr.name, mr.transaction_date, mr.company)
+		.where((mr.name == mr_item.parent) & mr.name.isin(permitted) & mr_item.item_code.isin(supplier_items))
+		.groupby(mr.name, mr.transaction_date, mr.company)
+		.orderby(Min(mr_item.item_code), order=Order.asc)
+		.limit(cint(page_len))
+		.offset(cint(start))
+	).run()
 
 
 @frappe.whitelist()

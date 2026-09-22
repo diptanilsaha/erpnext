@@ -2860,26 +2860,33 @@ def make_inter_company_transaction(doctype, source_name, target_doc=None):
 
 @frappe.whitelist()
 def get_received_items(reference_name: str, doctype: str, reference_fieldname: str):
-	# The only two targets this resolves a reference field for. Stating them rejects a caller
-	# supplied doctype that would otherwise be filtered on a column it does not have.
+	# The only two targets this resolves a reference field for, and the only reference field each
+	# is called with -- sales_invoice.js:194 and make_inter_company_transaction() are the callers.
+	# Stating them rejects a caller supplied doctype that would otherwise be filtered on a column
+	# it does not have.
 	reference_fields = {
-		"Purchase Invoice": ("inter_company_invoice_reference", "Sales Invoice"),
-		"Purchase Order": ("inter_company_order_reference", "Sales Order"),
+		"Purchase Invoice": ("inter_company_invoice_reference", "Sales Invoice", "sales_invoice_item"),
+		"Purchase Order": ("inter_company_order_reference", "Sales Order", "sales_order_item"),
 	}
 	if doctype not in reference_fields:
 		frappe.throw(_("Invalid doctype {0}").format(doctype), frappe.PermissionError)
 
-	reference_field, source_doctype = reference_fields[doctype]
+	reference_field, source_doctype, expected_fieldname = reference_fields[doctype]
 
 	# `reference_name` is the caller's own document. The targets belong to the counterpart company
 	# and the caller legitimately may not be able to read them, so the source is what decides
 	# access here rather than the doctype being counted. doc= brings User Permissions in.
 	frappe.has_permission(source_doctype, doc=reference_name, throw=True)
 
-	# `reference_fieldname` is selected as a column below and its value becomes the result key,
-	# so an unchecked one returns any field of the item table to the caller.
-	if not frappe.get_meta(doctype + " Item").has_field(reference_fieldname):
-		frappe.throw(_("Invalid field {0}").format(reference_fieldname), frappe.PermissionError)
+	# `reference_fieldname` is selected as a column below and its value becomes the result key, so
+	# it has to be the one reference field this target uses. Any other name that merely exists on
+	# the item table -- `rate`, `amount`, `base_rate` -- would otherwise be returned from rows the
+	# caller has not been authorised to read.
+	if reference_fieldname != expected_fieldname:
+		frappe.throw(
+			_("{0} is not a valid reference field for {1}").format(reference_fieldname, doctype),
+			frappe.ValidationError,
+		)
 
 	filters = {
 		reference_field: reference_name,
