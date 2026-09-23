@@ -271,11 +271,16 @@ def get_incoming_rate(args: dict | str, raise_error_if_no_rate: bool = True, fal
 	# Manager reaches this from every sales and buying form and holds neither read nor select on
 	# Warehouse, so a check on the doctype would deny the role this endpoint exists for. This costs
 	# nobody who holds no Warehouse User Permission.
+	# Every Warehouse User Permission counts here, whatever its `applicable_for`.
+	# get_allowed_docs_for_doctype() keeps only the rules that are global or name a given doctype,
+	# and the only doctype on offer is args["voucher_type"], which the caller supplies -- so
+	# filtering by it would let a caller name a different voucher type and shed the rule. A rate is
+	# not a document, so there is no trusted document context to match `applicable_for` against.
 	if warehouse:
-		from frappe.permissions import get_allowed_docs_for_doctype, get_user_permissions
+		from frappe.permissions import get_user_permissions
 
 		if warehouse_permissions := get_user_permissions(frappe.session.user).get("Warehouse"):
-			allowed_warehouses = get_allowed_docs_for_doctype(warehouse_permissions, "Item")
+			allowed_warehouses = {perm.get("doc") for perm in warehouse_permissions if perm.get("doc")}
 			if allowed_warehouses and warehouse not in allowed_warehouses:
 				frappe.throw(_("Not permitted for {0}").format(warehouse), frappe.PermissionError)
 
